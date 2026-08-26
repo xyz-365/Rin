@@ -5,28 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GeoGebra 交互演示</title>
     <style>
-        * {
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #f9f9f9;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            width: 100%;
+            height: 100%;
+            background-color: #ffffff;
+            overflow: hidden;
         }
         #ggb-container {
             width: 100%;
-            max-width: 800px;
-            height: 600px; /* 会被 JS 动态覆盖 */
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-            border-radius: 6px;
-            overflow: hidden;
+            height: 100%;
+            min-height: 300px;
             background-color: #ffffff;
         }
         .loading-tip {
@@ -34,12 +25,14 @@
             color: #666;
             padding: 40px 20px;
             font-size: 16px;
+            font-family: sans-serif;
         }
         .error-tip {
             text-align: center;
             color: #d32f2f;
             padding: 40px 20px;
             font-size: 16px;
+            font-family: sans-serif;
             display: none;
         }
         .spinner {
@@ -56,11 +49,6 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-        @media (max-width: 600px) {
-            #ggb-container {
-                border-radius: 0;
-            }
-        }
     </style>
 </head>
 <body>
@@ -75,8 +63,7 @@
         </div>
     </div>
 
-    <!-- 使用官方 CDN，确保最新版本 -->
-    <script src="https://ggb123.cn/apps/deployggb.js">
+    <script src="https://cdn.geogebra.org/apps/deployggb.js">
     </script>
 
     <script>
@@ -86,35 +73,31 @@
             var urlParams = new URLSearchParams(window.location.search);
             var fileName = urlParams.get('file');
             var customHeight = urlParams.get('height');
-            var showToolBarParam = urlParams.get('toolbar');  // 'true' 或 'false'
-            var customTools = urlParams.get('tools');         // 如 '0 1 2'
+            var showToolBarParam = urlParams.get('toolbar');
+            var customTools = urlParams.get('tools');
 
-            // ---------- 2. 基础地址（你的 .ggb 文件存放位置） ----------
             var baseUrl = "https://p.jgd.cc.cd/file/";
 
-            // ---------- 3. 获取容器并计算尺寸 ----------
+            // ---------- 2. 获取容器 ----------
             var container = document.getElementById('ggb-container');
 
-            // 获取容器实际宽度（考虑 padding 和 border）
+            // ---------- 3. 计算尺寸 ----------
+            // 获取容器实际宽度（包括可能的 padding）
             var containerWidth = container.clientWidth || window.innerWidth || 800;
-            // 限制最大宽度 800px，防止在平板上过度拉伸
+            // 限制最大宽度
             var finalWidth = Math.min(containerWidth, 800);
-
-            // 按 4:3 比例计算高度，最小 300px
-            var finalHeight = Math.max(300, finalWidth * 0.75);
-
-            // 如果 URL 中指定了高度，则覆盖
+            // 高度：优先使用自定义高度，否则按比例计算
+            var finalHeight;
             if (customHeight) {
-                var h = parseInt(customHeight);
-                if (!isNaN(h) && h > 100) {
-                    finalHeight = h;
-                }
+                finalHeight = parseInt(customHeight);
+                if (isNaN(finalHeight) || finalHeight < 100) finalHeight = Math.max(300, finalWidth * 0.75);
+            } else {
+                finalHeight = Math.max(300, finalWidth * 0.75);
             }
-
-            // 设置容器高度
+            // 确保容器高度正确
             container.style.height = finalHeight + 'px';
 
-            // ---------- 4. 处理 file 参数 ----------
+            // ---------- 4. 参数校验 ----------
             if (!fileName) {
                 document.getElementById('loading-tip').style.display = 'none';
                 document.getElementById('error-tip').style.display = 'block';
@@ -123,63 +106,105 @@
 
             var fullFileUrl = baseUrl + fileName;
 
-            // ---------- 5. 构建 GeoGebra 参数 ----------
+            // ---------- 5. 构建参数（使用更底层的配置） ----------
+            var showToolBar = (showToolBarParam !== 'false');
+
+            // 构建 article 元素（renderGGBElement 需要的 DOM 结构）
+            var article = document.createElement('div');
+            article.className = 'appletParameters notranslate';
+            article.style.border = 'none';
+            article.style.display = 'inline-block';
+            article.style.width = '100%';
+            article.style.height = '100%';
+
+            // 设置 data-param-* 属性（renderGGBElement 会读取这些）
             var params = {
                 "appName": "classic",
                 "width": finalWidth,
                 "height": finalHeight,
-                // ★★★ 核心：scale 让内容适配容器，解决四周空白 ★★★
-                "scale": containerWidth / 800,
+                "scale": containerWidth / 800,           // ★ 缩放比例
+                "allowUpscale": true,                    // ★ 允许放大
                 "showAlgebraInput": false,
                 "showMenuBar": false,
                 "allowStyleBar": false,
                 "showResetIcon": false,
                 "enableFileFeatures": false,
                 "showFullscreenButton": true,
-                "filename": fullFileUrl
+                "filename": fullFileUrl,
+                "showToolBar": showToolBar,
+                "showToolBarHelp": false,
+                "customToolBar": showToolBar ? (customTools || "") : ""
             };
 
-            // ---------- 6. 工具栏控制 ----------
-            // 判断是否显示工具栏
-            var showToolBar = (showToolBarParam !== 'false'); // 默认为 true
-            if (showToolBar) {
-                params.showToolBar = true;
-                params.showToolBarHelp = false;
-                // 如果传入了 tools，则使用自定义工具列表；否则清空工具栏（只保留全屏按钮）
-                if (customTools) {
-                    params.customToolBar = customTools;
-                } else {
-                    params.customToolBar = "";
+            // 将所有参数设置为 article 的 data-param-* 属性
+            for (var key in params) {
+                if (params.hasOwnProperty(key)) {
+                    article.setAttribute('data-param-' + key, params[key]);
                 }
-            } else {
-                params.showToolBar = false;
-                params.showFullscreenButton = false; // 隐藏工具栏时也隐藏全屏按钮（避免孤立的按钮）
             }
 
-            // ---------- 7. 注入 applet ----------
-            var applet = new GGBApplet(params, true);
-            applet.inject('ggb-container');
+            // 清空容器，添加 article
+            container.innerHTML = '';
+            container.appendChild(article);
 
-            // ---------- 8. 超时处理（如果加载过慢） ----------
-            setTimeout(function() {
-                var container = document.getElementById('ggb-container');
-                if (container.querySelector('#loading-tip')) {
-                    var tip = document.getElementById('loading-tip');
-                    if (tip) {
-                        tip.innerHTML = '⏳ 加载时间较长，请检查网络后刷新重试...';
+            // ---------- 6. ★★★ 使用底层 renderGGBElement ★★★ ----------
+            // 这是 GeoGebra 的核心渲染函数，比 inject() 更底层
+            function renderGGBElementCallback(api) {
+                console.log('GeoGebra applet 已渲染', api);
+                // 可以在这里做额外初始化
+            }
+
+            // 如果 renderGGBElement 已经加载，直接调用
+            if (typeof renderGGBElement === 'function') {
+                renderGGBElement(article, renderGGBElementCallback);
+            } else {
+                // 否则等待加载完成
+                var checkInterval = setInterval(function() {
+                    if (typeof renderGGBElement === 'function') {
+                        clearInterval(checkInterval);
+                        renderGGBElement(article, renderGGBElementCallback);
                     }
-                }
-            }, 30000);
+                }, 100);
+                // 10秒超时
+                setTimeout(function() {
+                    clearInterval(checkInterval);
+                    if (typeof renderGGBElement !== 'function') {
+                        console.error('renderGGBElement 未加载成功');
+                        document.getElementById('loading-tip').innerHTML = '⚠️ 加载失败，请刷新重试';
+                    }
+                }, 10000);
+            }
 
-            // ---------- 9. （可选）窗口 resize 时重新缩放 ----------
-            // 简单防抖：若窗口变化超过 50px，重新加载页面（或可更优雅地调用 applet.setSize）
-            var lastWidth = finalWidth;
+            // ---------- 7. 窗口大小变化处理 ----------
+            var resizeTimer = null;
             window.addEventListener('resize', function() {
-                var newWidth = document.getElementById('ggb-container').clientWidth || window.innerWidth;
-                if (Math.abs(newWidth - lastWidth) > 50) {
-                    // 简单刷新，也可以使用更复杂的动态调整
-                    // 这里为了防止频繁刷新，不做处理，用户可自行扩展
-                }
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(function() {
+                    var newWidth = container.clientWidth || window.innerWidth || 800;
+                    var newWidthClamped = Math.min(newWidth, 800);
+                    var newHeight = Math.max(300, newWidthClamped * 0.75);
+                    if (customHeight) {
+                        var h = parseInt(customHeight);
+                        if (!isNaN(h) && h > 100) newHeight = h;
+                    }
+                    // 更新容器大小
+                    container.style.height = newHeight + 'px';
+                    // 更新 article 的 data 属性
+                    article.setAttribute('data-param-width', newWidthClamped);
+                    article.setAttribute('data-param-height', newHeight);
+                    article.setAttribute('data-param-scale', newWidth / 800);
+                    // 重新渲染
+                    if (typeof renderGGBElement === 'function') {
+                        // 需要清除之前的 applet 重新创建
+                        // 简单做法：重新加载页面
+                        // 更优雅：调用 applet 的 setSize 方法
+                        // 这里简单处理：刷新
+                        // window.location.reload();
+                        // 但为了不丢失状态，我们只更新尺寸，不刷新
+                        // 实际上 renderGGBElement 不支持直接 resize，需要重建
+                        // 所以对于移动端，最稳定的方案是保持固定尺寸
+                    }
+                }, 300);
             });
 
         });
