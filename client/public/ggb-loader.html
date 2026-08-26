@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>GeoGebra 交互演示</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -11,26 +11,47 @@
             height: 100%;
             background-color: #ffffff;
             overflow: hidden;
+            /* 防止 iOS 橡皮筋滚动 */
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        #ggb-wrapper {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         #ggb-container {
-            width: 100%;
+            /* 实际尺寸由 JS 设置为设计宽度，再通过 scale 缩放 */
+            transform-origin: center center;
             background-color: #ffffff;
-            position: relative;
         }
         .loading-tip {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             text-align: center;
             color: #666;
-            padding: 40px 20px;
             font-size: 16px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            z-index: 10;
         }
         .error-tip {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             text-align: center;
             color: #d32f2f;
-            padding: 40px 20px;
             font-size: 16px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             display: none;
+            z-index: 10;
         }
         .spinner {
             display: inline-block;
@@ -50,7 +71,7 @@
 </head>
 <body>
 
-    <div id="ggb-container">
+    <div id="ggb-wrapper">
         <div class="loading-tip" id="loading-tip">
             <span class="spinner"></span> 正在加载 GeoGebra 应用，请稍候...
         </div>
@@ -61,10 +82,10 @@
                 参数
             </span>
         </div>
+        <div id="ggb-container"></div>
     </div>
 
-    <!-- GeoGebra 官方部署脚本 -->
-    <script src="https://cdn.geogebra.org/apps/deployggb.js"></script>
+    <script src="https://ggb123.cn/apps/deployggb.js"></script>
 
     <script>
     (function () {
@@ -72,35 +93,30 @@
 
         // ========== 1. 解析 URL 参数 ==========
         var urlParams = new URLSearchParams(window.location.search);
-        var fileName        = urlParams.get('file');
-        var customHeight    = urlParams.get('height');
+        var fileName         = urlParams.get('file');
+        var customHeight     = urlParams.get('height');
         var showToolBarParam = urlParams.get('toolbar');
-        var customTools     = urlParams.get('tools');
-        var baseUrl         = "https://p.jgd.cc.cd/file/";
+        var customTools      = urlParams.get('tools');
+        var baseUrl          = "https://p.jgd.cc.cd/file/";
 
-        // ========== 2. 获取 DOM 元素 ==========
+        // ========== 2. DOM 元素 ==========
+        var wrapper    = document.getElementById('ggb-wrapper');
         var container  = document.getElementById('ggb-container');
         var loadingTip = document.getElementById('loading-tip');
         var errorTip   = document.getElementById('error-tip');
 
-        // ========== 3. 计算尺寸 ==========
-        function calcSize() {
-            var w = container.clientWidth || window.innerWidth || 800;
-            w = Math.min(w, 800);
-            var h;
-            if (customHeight) {
-                h = parseInt(customHeight, 10);
-                if (isNaN(h) || h < 100) {
-                    h = Math.max(300, w * 0.75);
-                }
-            } else {
-                h = Math.max(300, w * 0.75);
-            }
-            return { width: w, height: h };
+        // ========== 3. 设计尺寸（GeoGebra 内部渲染用） ==========
+        // 用一个固定的"设计宽度"，然后用 CSS scale 适配屏幕
+        var DESIGN_WIDTH  = 800;
+        var DESIGN_HEIGHT = customHeight ? parseInt(customHeight, 10) : 600;
+
+        if (isNaN(DESIGN_HEIGHT) || DESIGN_HEIGHT < 100) {
+            DESIGN_HEIGHT = 600;
         }
 
-        var size = calcSize();
-        container.style.height = size.height + 'px';
+        // 先给容器设好固定尺寸（GeoGebra 需要）
+        container.style.width  = DESIGN_WIDTH + 'px';
+        container.style.height = DESIGN_HEIGHT + 'px';
 
         // ========== 4. 参数校验 ==========
         if (!fileName) {
@@ -114,8 +130,8 @@
 
         var ggbParams = {
             appName: "classic",
-            width: size.width,
-            height: size.height,
+            width: DESIGN_WIDTH,
+            height: DESIGN_HEIGHT,
             showAlgebraInput: false,
             showMenuBar: false,
             allowStyleBar: false,
@@ -130,48 +146,52 @@
             showLogging: false,
             useBrowserForJS: true,
             appletOnLoad: function () {
-                // Applet 加载完成后隐藏 loading 提示
                 loadingTip.style.display = 'none';
+                // 加载完成后做一次缩放适配
+                updateScale();
             }
         };
 
-        // ========== 6. 创建并注入 Applet ==========
+        // ========== 6. 注入 Applet ==========
         var ggbApp = new GGBApplet(ggbParams, true);
         ggbApp.inject(container, 'preferhtml5');
 
-        // ========== 7. 获取 applet 实例（供 resize 调用） ==========
-        var appletReady = false;
-        var appletObj   = null;
+        // ========== 7. 缩放适配核心函数 ==========
+        function updateScale() {
+            // 用 getBoundingClientRect 获取最准确的可用空间
+            var rect = wrapper.getBoundingClientRect();
+            var availW = rect.width;
+            var availH = rect.height;
 
-        var checkReady = setInterval(function () {
-            try {
-                appletObj = ggbApp.getAppletObject();
-                if (appletObj) {
-                    appletReady = true;
-                    clearInterval(checkReady);
-                }
-            } catch (e) {
-                // 尚未就绪，继续等待
-            }
-        }, 200);
+            // 计算缩放比例（保持设计比例，完整显示）
+            var scaleX = availW / DESIGN_WIDTH;
+            var scaleY = availH / DESIGN_HEIGHT;
+            var scale  = Math.min(scaleX, scaleY, 1); // 不超过 1（不放大）
 
-        // ========== 8. 窗口大小变化处理 ==========
+            // 应用缩放
+            container.style.transform = 'scale(' + scale + ')';
+            container.style.transformOrigin = 'center center';
+
+            // 更新容器实际占位的 CSS 尺寸，让 flex 居中正确工作
+            // （transform: scale 不会改变元素的布局占位，所以手动设）
+            container.style.width  = (DESIGN_WIDTH * scale) + 'px';
+            container.style.height = (DESIGN_HEIGHT * scale) + 'px';
+        }
+
+        // ========== 8. 窗口变化监听 ==========
         var resizeTimer = null;
         window.addEventListener('resize', function () {
             clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(function () {
-                var newSize = calcSize();
-                container.style.height = newSize.height + 'px';
-
-                if (appletReady && appletObj) {
-                    try {
-                        appletObj.setSize(newSize.width, newSize.height);
-                    } catch (e) {
-                        console.log('setSize failed:', e);
-                    }
-                }
-            }, 300);
+            resizeTimer = setTimeout(updateScale, 150);
         });
+
+        // 也监听 orientationchange（手机旋转）
+        window.addEventListener('orientationchange', function () {
+            setTimeout(updateScale, 300);
+        });
+
+        // 初始适配（延迟一下等 DOM 稳定）
+        setTimeout(updateScale, 100);
 
     })();
     </script>
