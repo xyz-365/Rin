@@ -7,23 +7,23 @@
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body{ width:100%; height:100%; background:#fff; overflow:hidden; }
-  /* 关键：scaleContainerClass 对应的容器，GeoGebra 会按这个容器实际大小渲染 */
+  /* 响应式占位容器：宽100%，高按 4:3 */
   #ggb-scale{
     width:100%;
-    height:100%;
+    padding-bottom:75%;   /* 改这里=改比例，比如 56.25% 是 16:9 */
+    position:relative;
   }
-  /* 真正放 applet 的容器 */
+  /* GeoGebra 注入的元素必须绝对铺满占位容器 */
   #ggb-element{
-    width:100%;
-    height:100%;
+    position:absolute; inset:0; width:100%; height:100%;
   }
   .loading-tip{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    color:#666; font-size:15px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:#666; font-size:15px; z-index:5;
   }
   .error-tip{
-    position:absolute; inset:0; display:none; align-items:center; justify-content:center; text-align:center;
-    color:#d32f2f; font-size:15px; padding:20px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    color:#d32f2f; font-size:15px; padding:20px; text-align:center;
   }
 </style>
 </head>
@@ -34,7 +34,7 @@
     <div id="ggb-element"></div>
   </div>
 
-  <script src="https://cdn.geogebra.org/apps/deployggb.js"></script>
+  <script src="https://ggb123.cn/apps/deployggb.js"></script>
   <script>
   (function(){
     var p = new URLSearchParams(location.search);
@@ -45,10 +45,12 @@
       return;
     }
     var showTB = p.get('toolbar') !== 'false';
+
     var params = {
       appName:"classic",
-      // 不写 width/height，改用 scaleContainerClass（官方响应式方案）
-      scaleContainerClass:"ggb-scale",
+      scaleContainerClass:"ggb-scale",   // ← 关键，不写 width/height
+      autoHeight:true,
+      allowUpscale:false,
       filename:"https://p.jgd.cc.cd/file/" + file,
       showToolBar: showTB,
       customToolBar: showTB ? (p.get('tools')||"") : "",
@@ -62,10 +64,34 @@
       language:"zh_CN",
       appletOnLoad:function(){
         document.getElementById('loading-tip').style.display='none';
+        // 手机上首次注入后强制重算一次环境尺寸
+        try { this.recalculateEnvironments(); } catch(e){}
+        postHeight();
       }
     };
+
     var app = new GGBApplet(params, true);
     app.inject('ggb-element','preferhtml5');
+
+    // 把真实高度发给父 iframe（父页用 postMessage 接）
+    function postHeight(){
+      var real = document.getElementById('ggb-scale').getBoundingClientRect().height;
+      if(parent !== window){
+        parent.postMessage({type:'ggb-resize', height: Math.ceil(real)}, '*');
+      }
+    }
+    window.addEventListener('resize', function(){
+      setTimeout(function(){
+        try { app.getAppletObject().recalculateEnvironments(); } catch(e){}
+        postHeight();
+      }, 200);
+    });
+    window.addEventListener('orientationchange', function(){
+      setTimeout(function(){
+        try { app.getAppletObject().recalculateEnvironments(); } catch(e){}
+        postHeight();
+      }, 400);
+    });
   })();
   </script>
 </body>
