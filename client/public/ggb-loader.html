@@ -109,17 +109,21 @@
 
             // ★★★ 构建 params ★★★
             var params = {
-                "appName": "classic",
-                "width": containerWidth,
-                "height": finalHeight,
-                "showAlgebraInput": false,
-                "showMenuBar": false,
-                "allowStyleBar": false,
-                "showResetIcon": false,
-                "enableFileFeatures": false,
-                "showFullscreenButton": true,
-                "filename": fullFileUrl
-            };
+    "appName": "classic",
+    "width": containerWidth,
+    "height": finalHeight,
+    "scale": containerWidth / 800,        // ← 新增：自动缩放
+    "showToolBar": showToolBar !== 'false',
+    "showToolBarHelp": false,
+    "showFullscreenButton": true,
+    "customToolBar": customTools || "",
+    "showAlgebraInput": false,
+    "showMenuBar": false,
+    "allowStyleBar": false,
+    "showResetIcon": false,
+    "enableFileFeatures": false,
+    "filename": fullFileUrl
+};
 
             // ============================================================
             // 1. 控制工具栏显示/隐藏
